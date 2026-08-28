@@ -1,36 +1,100 @@
 const express = require("express");
 const axios = require("axios");
+const path = require("path");
 
 const app = express();
 
 app.use(express.urlencoded({ extended: true }));
 
+// Serve CSS and other static files from public folder
+app.use(express.static(path.join(__dirname, "public")));
+
 app.get("/", (req, res) => {
   res.send(`
-    <h2>Student Form</h2>
+    <!DOCTYPE html>
+    <html lang="en">
 
-    <form action="/submit" method="POST">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-      <label>Name:</label><br>
-      <input type="text" name="name"><br><br>
+      <title>Student Portal</title>
 
-      <label>Email:</label><br>
-      <input type="email" name="email"><br><br>
+      <link rel="stylesheet" href="/app.css">
+    </head>
 
-      <button type="submit">Submit</button>
+    <body>
 
-    </form>
+      <div class="container">
+
+        <div class="card">
+
+          <h1>Student Form</h1>
+
+          <p class="subtitle">
+            Enter your details to continue
+          </p>
+
+          <form action="/submit" method="POST">
+
+            <div class="form-group">
+              <label for="name">Name</label>
+
+              <input
+                type="text"
+                id="name"
+                name="name"
+                placeholder="Enter your name"
+                required
+              >
+            </div>
+
+            <div class="form-group">
+              <label for="email">Email</label>
+
+              <input
+                type="email"
+                id="email"
+                name="email"
+                placeholder="Enter your email"
+                required
+              >
+            </div>
+
+            <button type="submit">
+              Submit
+            </button>
+
+          </form>
+
+        </div>
+
+      </div>
+
+    </body>
+
+    </html>
   `);
+});
+
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "healthy",
+    service: "frontend"
+  });
 });
 
 app.post("/submit", async (req, res) => {
   try {
-    const response = await axios.post("http://backend:5000/submit", req.body);
+    const response = await axios.post(
+      "http://backend:5000/submit",
+      req.body
+    );
 
     res.send(response.data);
 
   } catch (error) {
-    res.send("Backend not reachable");
+    res.status(503).send("Backend not reachable");
   }
 });
 
