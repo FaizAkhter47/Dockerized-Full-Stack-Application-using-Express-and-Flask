@@ -28,6 +28,15 @@ jobs:
           cd backend
           python -m unittest test_app.py
 
+      - name: Check Docker Hub Token
+        run: |
+          if [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            echo "TOKEN IS MISSING"
+            exit 1
+          else
+            echo "TOKEN EXISTS"
+          fi
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
