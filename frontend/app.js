@@ -6,8 +6,8 @@ const app = express();
 
 app.use(express.urlencoded({ extended: true }));
 
-// Serve CSS and other static files from public folder
 app.use(express.static(path.join(__dirname, "public")));
+
 
 app.get("/", (req, res) => {
   res.send(`
@@ -77,6 +77,7 @@ app.get("/", (req, res) => {
   `);
 });
 
+
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "healthy",
@@ -84,20 +85,36 @@ app.get("/health", (req, res) => {
   });
 });
 
+
 app.post("/submit", async (req, res) => {
   try {
+    console.log("Sending to backend:", req.body);
+
     const response = await axios.post(
-      "http://backend:5000/submit",
-      req.body
+      "http://127.0.0.1:5000/submit",
+      req.body,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        }
+      }
     );
 
     res.send(response.data);
 
   } catch (error) {
+    console.error("Backend error:", error.message);
+
+    if (error.response) {
+      console.error("Backend response:", error.response.status);
+      console.error(error.response.data);
+    }
+
     res.status(503).send("Backend not reachable");
   }
 });
 
+
 app.listen(3000, () => {
-  console.log("Frontend running on port 3000");
+  console.log("Frontend running on http://localhost:3000");
 });
