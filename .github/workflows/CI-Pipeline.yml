@@ -1,79 +1,545 @@
-name: CI Pipeline
+name: CI/CD Pipeline with Automatic Rollback
 
 on:
   push:
     branches:
       - main
 
+env:
+  IMAGE_NAME: faizakhter47/dockerized-full-stack-application-using-express-and-flask
+
 jobs:
+
+  # ============================================================
+  # JOB 1: BUILD, TEST & PUSH
+  # ============================================================
+
   build-test-push:
+
     runs-on: ubuntu-latest
 
     steps:
 
+      # --------------------------------------------------------
       # 1. Checkout Repository
+      # --------------------------------------------------------
+
       - name: Checkout code
         uses: actions/checkout@v4
 
+
+      # --------------------------------------------------------
       # 2. Login to Docker Hub
+      # --------------------------------------------------------
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 3. Create image tag from Git commit SHA
+
+      # --------------------------------------------------------
+      # 3. Create Image Tag from Git Commit SHA
+      # --------------------------------------------------------
+
       - name: Set Image Tag
         run: |
           echo "IMAGE_TAG=${GITHUB_SHA}" >> $GITHUB_ENV
 
+          echo "Image tag:"
+          echo "${GITHUB_SHA}"
+
+
+      # --------------------------------------------------------
       # 4. Build Frontend Image
+      # --------------------------------------------------------
+
       - name: Build Frontend Image
         run: |
           docker build \
-            -t faizakhter47/dockerized-full-stack-application-using-express-and-flask:frontend-${IMAGE_TAG} \
+            -t ${{ env.IMAGE_NAME }}:frontend-${IMAGE_TAG} \
             ./frontend
 
+
+      # --------------------------------------------------------
       # 5. Build Backend Image
+      # --------------------------------------------------------
+
       - name: Build Backend Image
         run: |
           docker build \
-            -t faizakhter47/dockerized-full-stack-application-using-express-and-flask:backend-${IMAGE_TAG} \
+            -t ${{ env.IMAGE_NAME }}:backend-${IMAGE_TAG} \
             ./backend
 
+
+      # --------------------------------------------------------
       # 6. Run Backend Container for Testing
+      # --------------------------------------------------------
+
       - name: Run Backend Container
         run: |
           docker run -d \
             --name backend-test \
             -p 5000:5000 \
-            faizakhter47/dockerized-full-stack-application-using-express-and-flask:backend-${IMAGE_TAG}
+            ${{ env.IMAGE_NAME }}:backend-${IMAGE_TAG}
 
+
+      # --------------------------------------------------------
       # 7. Wait for Backend
+      # --------------------------------------------------------
+
       - name: Wait for Backend
         run: |
+          echo "Waiting for backend..."
           sleep 10
 
-      # 8. Health Check
+
+      # --------------------------------------------------------
+      # 8. Backend Health Check
+      # --------------------------------------------------------
+
       - name: Backend Health Check
         run: |
+          echo "Checking backend health..."
           curl --fail http://localhost:5000/health
 
+          echo ""
+          echo "Backend health check passed."
+
+
+      # --------------------------------------------------------
       # 9. Stop Test Container
+      # --------------------------------------------------------
+
       - name: Stop Backend Test Container
         if: always()
         run: |
           docker stop backend-test || true
           docker rm backend-test || true
 
+
+      # --------------------------------------------------------
       # 10. Push Frontend Image
+      # --------------------------------------------------------
+
       - name: Push Frontend Image
         run: |
           docker push \
-            faizakhter47/dockerized-full-stack-application-using-express-and-flask:frontend-${IMAGE_TAG}
+            ${{ env.IMAGE_NAME }}:frontend-${IMAGE_TAG}
 
+
+      # --------------------------------------------------------
       # 11. Push Backend Image
+      # --------------------------------------------------------
+
       - name: Push Backend Image
         run: |
           docker push \
-            faizakhter47/dockerized-full-stack-application-using-express-and-flask:backend-${IMAGE_TAG}
+            ${{ env.IMAGE_NAME }}:backend-${IMAGE_TAG}
+
+
+      # --------------------------------------------------------
+      # 12. Build Summary
+      # --------------------------------------------------------
+
+      - name: Build Summary
+        run: |
+          echo "======================================"
+          echo "BUILD SUCCESSFUL"
+          echo "======================================"
+          echo "Frontend:"
+          echo "${{ env.IMAGE_NAME }}:frontend-${IMAGE_TAG}"
+          echo ""
+          echo "Backend:"
+          echo "${{ env.IMAGE_NAME }}:backend-${IMAGE_TAG}"
+          echo "======================================"
+
+
+  # ============================================================
+  # JOB 2: DEPLOY TO EC2
+  # ============================================================
+
+  deploy:
+
+    needs: build-test-push
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # --------------------------------------------------------
+      # 1. Deploy Application to EC2
+      # --------------------------------------------------------
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.2
+
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+
+          script: |
+
+            # ==================================================
+            # VARIABLES
+            # ==================================================
+
+            IMAGE="faizakhter47/dockerized-full-stack-application-using-express-and-flask"
+
+            NEW_TAG="${{ github.sha }}"
+
+            NEW_FRONTEND="$IMAGE:frontend-$NEW_TAG"
+
+            NEW_BACKEND="$IMAGE:backend-$NEW_TAG"
+
+            echo "=========================================="
+            echo "STARTING DEPLOYMENT"
+            echo "=========================================="
+
+            echo "New Frontend:"
+            echo "$NEW_FRONTEND"
+
+            echo "New Backend:"
+            echo "$NEW_BACKEND"
+
+
+            # ==================================================
+            # SAVE CURRENT WORKING IMAGES
+            # ==================================================
+
+            echo ""
+            echo "Saving previous working images..."
+
+            if docker inspect frontend >/dev/null 2>&1; then
+
+              PREVIOUS_FRONTEND=$(docker inspect \
+                --format='{{.Config.Image}}' frontend)
+
+              echo "Previous frontend:"
+              echo "$PREVIOUS_FRONTEND"
+
+            else
+
+              PREVIOUS_FRONTEND=""
+
+              echo "No previous frontend container found."
+
+            fi
+
+
+            if docker inspect backend >/dev/null 2>&1; then
+
+              PREVIOUS_BACKEND=$(docker inspect \
+                --format='{{.Config.Image}}' backend)
+
+              echo "Previous backend:"
+              echo "$PREVIOUS_BACKEND"
+
+            else
+
+              PREVIOUS_BACKEND=""
+
+              echo "No previous backend container found."
+
+            fi
+
+
+            # ==================================================
+            # SAVE ROLLBACK INFORMATION
+            # ==================================================
+
+            echo "$PREVIOUS_FRONTEND" > /tmp/previous_frontend.txt
+
+            echo "$PREVIOUS_BACKEND" > /tmp/previous_backend.txt
+
+            echo "$NEW_FRONTEND" > /tmp/new_frontend.txt
+
+            echo "$NEW_BACKEND" > /tmp/new_backend.txt
+
+
+            # ==================================================
+            # PULL NEW IMAGES
+            # ==================================================
+
+            echo ""
+            echo "Pulling new Docker images..."
+
+            docker pull "$NEW_FRONTEND"
+
+            docker pull "$NEW_BACKEND"
+
+
+            # ==================================================
+            # STOP CURRENT CONTAINERS
+            # ==================================================
+
+            echo ""
+            echo "Stopping current containers..."
+
+            docker stop frontend || true
+            docker stop backend || true
+
+
+            # ==================================================
+            # REMOVE CURRENT CONTAINERS
+            # ==================================================
+
+            echo ""
+            echo "Removing current containers..."
+
+            docker rm frontend || true
+            docker rm backend || true
+
+
+            # ==================================================
+            # START NEW BACKEND
+            # ==================================================
+
+            echo ""
+            echo "Starting new backend..."
+
+            docker run -d \
+              --name backend \
+              --restart unless-stopped \
+              -p 5000:5000 \
+              "$NEW_BACKEND"
+
+
+            # ==================================================
+            # START NEW FRONTEND
+            # ==================================================
+
+            echo ""
+            echo "Starting new frontend..."
+
+            docker run -d \
+              --name frontend \
+              --restart unless-stopped \
+              -p 3000:3000 \
+              "$NEW_FRONTEND"
+
+
+            # ==================================================
+            # WAIT FOR APPLICATION
+            # ==================================================
+
+            echo ""
+            echo "Waiting for application to start..."
+
+            sleep 15
+
+
+            # ==================================================
+            # FRONTEND HEALTH CHECK
+            # ==================================================
+
+            echo ""
+            echo "Running frontend health check..."
+
+            if curl \
+              --fail \
+              --max-time 10 \
+              http://localhost:3000/health
+            then
+
+              echo ""
+              echo "=========================================="
+              echo "DEPLOYMENT SUCCESSFUL"
+              echo "=========================================="
+
+              echo "Frontend health check: PASSED"
+
+              echo "New frontend:"
+              echo "$NEW_FRONTEND"
+
+              echo "New backend:"
+              echo "$NEW_BACKEND"
+
+              echo "=========================================="
+
+              exit 0
+
+            else
+
+              echo ""
+              echo "=========================================="
+              echo "HEALTH CHECK FAILED"
+              echo "=========================================="
+
+              echo "Starting automatic rollback..."
+
+            fi
+
+
+            # ==================================================
+            # AUTOMATIC ROLLBACK
+            # ==================================================
+
+            echo ""
+            echo "=========================================="
+            echo "ROLLBACK STARTED"
+            echo "=========================================="
+
+
+            # --------------------------------------------------
+            # READ PREVIOUS IMAGES
+            # --------------------------------------------------
+
+            PREVIOUS_FRONTEND=$(cat /tmp/previous_frontend.txt)
+
+            PREVIOUS_BACKEND=$(cat /tmp/previous_backend.txt)
+
+
+            echo "Previous frontend:"
+            echo "$PREVIOUS_FRONTEND"
+
+            echo "Previous backend:"
+            echo "$PREVIOUS_BACKEND"
+
+
+            # --------------------------------------------------
+            # STOP FAILED CONTAINERS
+            # --------------------------------------------------
+
+            echo ""
+            echo "Stopping failed deployment..."
+
+            docker stop frontend || true
+            docker stop backend || true
+
+
+            # --------------------------------------------------
+            # REMOVE FAILED CONTAINERS
+            # --------------------------------------------------
+
+            echo ""
+            echo "Removing failed containers..."
+
+            docker rm frontend || true
+            docker rm backend || true
+
+
+            # ==================================================
+            # CHECK PREVIOUS IMAGES
+            # ==================================================
+
+            if [ -z "$PREVIOUS_FRONTEND" ] || [ -z "$PREVIOUS_BACKEND" ]; then
+
+              echo ""
+              echo "=========================================="
+              echo "ROLLBACK IMPOSSIBLE"
+              echo "=========================================="
+
+              echo "Previous working image was not found."
+
+              exit 1
+
+            fi
+
+
+            # ==================================================
+            # PULL PREVIOUS IMAGES
+            # ==================================================
+
+            echo ""
+            echo "Restoring previous frontend image..."
+
+            docker pull "$PREVIOUS_FRONTEND" || true
+
+
+            echo ""
+            echo "Restoring previous backend image..."
+
+            docker pull "$PREVIOUS_BACKEND" || true
+
+
+            # ==================================================
+            # START PREVIOUS BACKEND
+            # ==================================================
+
+            echo ""
+            echo "Starting previous backend..."
+
+            docker run -d \
+              --name backend \
+              --restart unless-stopped \
+              -p 5000:5000 \
+              "$PREVIOUS_BACKEND"
+
+
+            # ==================================================
+            # START PREVIOUS FRONTEND
+            # ==================================================
+
+            echo ""
+            echo "Starting previous frontend..."
+
+            docker run -d \
+              --name frontend \
+              --restart unless-stopped \
+              -p 3000:3000 \
+              "$PREVIOUS_FRONTEND"
+
+
+            # ==================================================
+            # WAIT FOR ROLLBACK
+            # ==================================================
+
+            echo ""
+            echo "Waiting for rollback..."
+
+            sleep 15
+
+
+            # ==================================================
+            # VERIFY ROLLBACK
+            # ==================================================
+
+            echo ""
+            echo "Checking rollback health..."
+
+
+            if curl \
+              --fail \
+              --max-time 10 \
+              http://localhost:3000/health
+            then
+
+              echo ""
+              echo "=========================================="
+              echo "ROLLBACK SUCCESSFUL"
+              echo "=========================================="
+
+              echo "Previous frontend restored:"
+              echo "$PREVIOUS_FRONTEND"
+
+              echo "Previous backend restored:"
+              echo "$PREVIOUS_BACKEND"
+
+              echo "Application is healthy again."
+
+              echo "=========================================="
+
+              exit 0
+
+            else
+
+              echo ""
+              echo "=========================================="
+              echo "ROLLBACK FAILED"
+              echo "=========================================="
+
+              echo "Previous version could not be restored."
+
+              echo "Check EC2 containers using:"
+              echo "docker ps"
+              echo "docker logs frontend"
+              echo "docker logs backend"
+
+              echo "=========================================="
+
+              exit 1
+
+            fi
