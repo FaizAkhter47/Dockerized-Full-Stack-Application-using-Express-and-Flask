@@ -405,7 +405,7 @@ app.get("/", (req, res) => {
 
 // HEALTH CHECK
 app.get("/health", (req, res) => {
-  res.status(200).json({
+  res.status(500).json({
     status: "healthy",
     service: "frontend"
   });
