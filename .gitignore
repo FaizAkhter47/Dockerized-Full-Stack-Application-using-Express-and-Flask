@@ -5,3 +5,8 @@ __pycache__/
 *.pyc
 .env
 ec2.studystow.pem
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
