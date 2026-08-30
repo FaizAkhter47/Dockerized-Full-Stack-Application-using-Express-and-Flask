@@ -91,7 +91,7 @@ app.post("/submit", async (req, res) => {
     console.log("Sending to backend:", req.body);
 
     const response = await axios.post(
-      "http://127.0.0.1:5000/submit",
+      "http://13.233.105.174:5000/submit",
       req.body,
       {
         headers: {
