@@ -4,3 +4,4 @@ venv/
 __pycache__/
 *.pyc
 .env
+ec2.studystow.pem
