@@ -1,4 +1,4 @@
-name: CI/CD Pipeline with Automatic Rollback
+name: CI / CD Pipeline with Automatic Rollback
 
 on:
   push:
