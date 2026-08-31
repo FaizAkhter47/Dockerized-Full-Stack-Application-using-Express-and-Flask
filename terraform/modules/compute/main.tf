@@ -13,6 +13,42 @@ data "aws_ami" "amazon_linux" {
   }
 }
 
+# -------------------------
+# IAM Role for SSM
+# -------------------------
+
+resource "aws_iam_role" "ec2_ssm" {
+  name = "${var.project_name}-${var.environment}-ec2-ssm-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [{
+      Effect = "Allow"
+
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ssm" {
+  role       = aws_iam_role.ec2_ssm.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "ec2_ssm" {
+  name = "${var.project_name}-${var.environment}-ec2-profile"
+  role = aws_iam_role.ec2_ssm.name
+}
+
+# -------------------------
+# Load Balancer
+# -------------------------
+
 resource "aws_lb" "app" {
   name               = "${var.project_name}-${var.environment}-alb"
   internal           = false
@@ -53,24 +89,34 @@ resource "aws_lb_listener" "http" {
   }
 }
 
+# -------------------------
+# Launch Template
+# -------------------------
+
 resource "aws_launch_template" "app" {
   name_prefix   = "${var.project_name}-${var.environment}-"
   image_id      = data.aws_ami.amazon_linux.id
   instance_type = var.instance_type
 
+  iam_instance_profile {
+    name = aws_iam_instance_profile.ec2_ssm.name
+  }
+
   vpc_security_group_ids = [var.app_security_group_id]
 
   user_data = base64encode(<<-EOF
     #!/bin/bash
+
     dnf update -y
     dnf install -y docker
+
     systemctl enable docker
     systemctl start docker
 
     docker run -d \
       --restart unless-stopped \
       -p 3000:3000 \
-      your-dockerhub-username/frontend:latest
+      YOUR_DOCKERHUB_USERNAME/frontend:latest
   EOF
   )
 
@@ -82,6 +128,10 @@ resource "aws_launch_template" "app" {
     }
   }
 }
+
+# -------------------------
+# Auto Scaling Group
+# -------------------------
 
 resource "aws_autoscaling_group" "app" {
   name                = "${var.project_name}-${var.environment}-asg"
