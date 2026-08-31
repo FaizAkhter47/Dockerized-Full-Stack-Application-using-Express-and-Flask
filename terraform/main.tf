@@ -1,16 +1,47 @@
 module "network" {
-  source = "./modules/networks"
+  source = "./modules/network"
 
   project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+}
 
-  vpc_cidr = var.vpc_cidr
+module "security" {
+  source = "./modules/security"
 
-  public_subnet_1_cidr = var.public_subnet_1_cidr
-  public_subnet_2_cidr = var.public_subnet_2_cidr
+  project_name = var.project_name
+  environment  = var.environment
+  vpc_id       = module.network.vpc_id
+}
 
-  private_subnet_1_cidr = var.private_subnet_1_cidr
-  private_subnet_2_cidr = var.private_subnet_2_cidr
+module "compute" {
+  source = "./modules/compute"
 
-  az_1 = var.az_1
-  az_2 = var.az_2
+  project_name      = var.project_name
+  environment       = var.environment
+  instance_type     = var.instance_type
+  desired_capacity  = var.desired_capacity
+  min_size          = var.min_size
+  max_size          = var.max_size
+
+  vpc_id            = module.network.vpc_id
+  public_subnet_ids = module.network.public_subnet_ids
+  private_subnet_ids = module.network.private_subnet_ids
+
+  alb_security_group_id = module.security.alb_security_group_id
+  app_security_group_id = module.security.app_security_group_id
+}
+
+module "database" {
+  source = "./modules/database"
+
+  project_name       = var.project_name
+  environment        = var.environment
+  db_instance_class  = var.db_instance_class
+  db_name            = var.db_name
+  db_username        = var.db_username
+  db_password        = var.db_password
+
+  private_subnet_ids = module.network.private_subnet_ids
+  db_security_group_id = module.security.db_security_group_id
 }
